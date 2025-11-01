@@ -1,0 +1,39 @@
+name: Build Skopeo Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y libgpgme-dev pkg-config libbtrfs-dev
+
+      - name: Build Skopeo
+        run: |
+          go mod tidy
+          go build -buildmode=pie -o skopeo-ubuntu-22.04 ./cmd/skopeo
+          tar -czvf skopeo-ubuntu-22.04.tar.gz skopeo-ubuntu-22.04
+
+      - name: Create Release & Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: ./skopeo-ubuntu-22.04.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
