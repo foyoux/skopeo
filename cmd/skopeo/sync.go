@@ -45,6 +45,7 @@ type syncOptions struct {
 	keepGoing           bool   // Whether or not to abort the sync if there are any errors during syncing the images
 	appendSuffix        string // Suffix to append to destination image tag
 	excludeRegex        []*regexp.Regexp
+	includeRegex        []*regexp.Regexp
 }
 
 // repoDescriptor contains information of a single repository used as a sync source.
@@ -121,18 +122,41 @@ See skopeo-sync(1) for details.
 	flags.BoolVar(&opts.dryRun, "dry-run", false, "Run without actually copying data")
 	flags.BoolVarP(&opts.keepGoing, "keep-going", "", false, "Do not abort the sync if any image copy fails")
 
+	// include-regex: Include matching tags
+	var includeRegexes []string
+	flags.StringSliceVar(&includeRegexes, "include-regex", nil, "Regular expressions to match and include tags when syncing")
 	// exclude-regex: Exclude matching tags
 	var excludeRegexes []string
 	flags.StringSliceVar(&excludeRegexes, "exclude-regex", nil, "Regular expressions to match and exclude tags when syncing")
 	// post-parse hook to compile regexes
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		for _, pattern := range excludeRegexes {
-			re, err := regexp.Compile(pattern)
-			if err != nil {
-				return fmt.Errorf("invalid regex for --exclude-regex '%s': %w", pattern, err)
+		handleRegexList := func(name string, patterns []string) ([]*regexp.Regexp, error) {
+			var regexList []*regexp.Regexp
+			for _, pattern := range patterns {
+				pattern = strings.TrimSpace(pattern)
+				if pattern == "" {
+					cmd.Printf("⚠️  skipping empty %s pattern\n", name)
+					continue
+				}
+				re, err := regexp.Compile(pattern)
+				if err != nil {
+					return nil, fmt.Errorf("invalid regex for --%s '%s': %w", name, pattern, err)
+				}
+				cmd.Printf("✅ added %s pattern: %s\n", name, pattern)
+				regexList = append(regexList, re)
 			}
-			opts.excludeRegex = append(opts.excludeRegex, re)
+			return regexList, nil
 		}
+
+		var err error
+		if opts.includeRegex, err = handleRegexList("include-regex", includeRegexes); err != nil {
+			return err
+		}
+		if opts.excludeRegex, err = handleRegexList("exclude-regex", excludeRegexes); err != nil {
+			return err
+		}
+
+		cmd.Println("✨ regex validation completed successfully")
 		return nil
 	}
 
@@ -600,7 +624,7 @@ func imagesToCopy(source string, transport string, sourceCtx *types.SystemContex
 }
 
 // filterTags removes image references whose tag matches any of opts.excludeRegex
-func filterTags(srcRepoList []repoDescriptor, exclude []*regexp.Regexp) []repoDescriptor {
+func filterTags(srcRepoList []repoDescriptor, include []*regexp.Regexp, exclude []*regexp.Regexp) []repoDescriptor {
 	if len(exclude) == 0 {
 		return srcRepoList
 	}
@@ -619,7 +643,20 @@ func filterTags(srcRepoList []repoDescriptor, exclude []*regexp.Regexp) []repoDe
 
 			tag := dr.Tag()
 
-			drop := false
+			drop := true
+			for _, re := range include {
+				if re.MatchString(tag) {
+					logrus.WithFields(logrus.Fields{
+						"repository": ref.DockerReference().Name(),
+						"tag":        tag,
+						"regex":      re.String(),
+					}).Info("Tag included")
+					drop = false
+					break
+				}
+			}
+
+			drop = false
 			for _, re := range exclude {
 				if re.MatchString(tag) {
 					logrus.WithFields(logrus.Fields{
@@ -711,7 +748,7 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 	}
 
 	// 过滤 tag, srcRepoList
-	srcRepoList = filterTags(srcRepoList, opts.excludeRegex)
+	srcRepoList = filterTags(srcRepoList, opts.includeRegex, opts.excludeRegex)
 
 	destination := args[1]
 	destinationCtx, err := opts.destImage.newSystemContext()
