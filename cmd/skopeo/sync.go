@@ -656,6 +656,10 @@ func filterTags(srcRepoList []repoDescriptor, include []*regexp.Regexp, exclude 
 				}
 			}
 
+			if drop {
+				continue
+			}
+
 			drop = false
 			for _, re := range exclude {
 				if re.MatchString(tag) {
