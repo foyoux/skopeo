@@ -643,7 +643,7 @@ func filterTags(srcRepoList []repoDescriptor, include []*regexp.Regexp, exclude 
 
 			tag := dr.Tag()
 
-			drop := true
+			drop := len(include) > 0
 			for _, re := range include {
 				if re.MatchString(tag) {
 					logrus.WithFields(logrus.Fields{
