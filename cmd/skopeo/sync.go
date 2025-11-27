@@ -625,7 +625,7 @@ func imagesToCopy(source string, transport string, sourceCtx *types.SystemContex
 
 // filterTags removes image references whose tag matches any of opts.excludeRegex
 func filterTags(srcRepoList []repoDescriptor, include []*regexp.Regexp, exclude []*regexp.Regexp) []repoDescriptor {
-	if len(exclude) == 0 {
+	if len(exclude) == 0 && len(include) == 0 {
 		return srcRepoList
 	}
 
